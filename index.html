@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solar by Forward777</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            background-color: #000000;
+            cursor: grab;
+        }
+
+        #info-box {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(10, 25, 45, 0.85);
+            color: #E2E8F0;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            max-width: 300px;
+            display: none;
+            z-index: 10;
+            border: 1px solid rgba(59, 130, 246, 0.5);
+        }
+
+        #info-box h3 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin-top: 0;
+            margin-bottom: 10px;
+            color: #63B3ED;
+        }
+
+        #info-box table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        #info-box td {
+            padding: 5px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 0.9rem;
+        }
+
+        #info-box tr:last-child td {
+            border-bottom: none;
+        }
+
+        #info-box td:first-child {
+            font-weight: 500;
+            color: #A0AEC0;
+            padding-right: 10px;
+        }
+
+        .pointer-cursor {
+            cursor: pointer !important;
+        }
+    </style>
+</head>
+<body>
+    <script>
+		window.alert('Левая кнопка мыши - крутить вертеть. Правая - двигать. Колёсико - приближать отдалять');
+	</script>
+    <div id="info-box" class="transition-opacity duration-300">
+        <h3 id="planet-name-title">Характеристики Планеты</h3>
+        <table>
+            <tr><td>Расстояние до Солнца:</td><td id="info-distance"></td></tr>
+            <tr><td>Диаметр:</td><td id="info-diameter"></td></tr>
+            <tr><td>Период обращения:</td><td id="info-period"></td></tr>
+        </table>
+    </div>
+    <script>
+        let scene, camera, renderer, controls;
+        let raycaster, mouse;
+        const infoBox = document.getElementById('info-box');
+        let asteroidBeltMesh;
+        let moonMesh;
+        const DISTANCE_SCALE = 0.5;
+        const SIZE_SCALE = 0.0005;
+        const AU_TO_KM = 149.6;
+        const MOON_DATA = {
+            name: "Луна",
+            distance: "0.00257 (от Земли)",
+            diameter: 3474,
+            period: 27.3,
+            color: 0xaaaaaa,
+            orbitRadius: 10,
+            speedFactor: 3
+        };
+        const planetData = [
+            { name: "Меркурий", distance: 0.39 * 1.2, diameter: 4880, period: 88, color: 0x808080, speedFactor: 4.15, sizeFactor: 1.0, textureUrl: null, orbitObj: null, mesh: null },
+            { name: "Венера", distance: 0.72 * 1.2, diameter: 12104, period: 225, color: 0xddc850, speedFactor: 1.62, sizeFactor: 1.0, textureUrl: null, orbitObj: null, mesh: null },
+            { name: "Земля", distance: 1.0 * 1.2, diameter: 12742, period: 365.25, color: 0x4682b4, speedFactor: 1.0, sizeFactor: 1.0, textureUrl: null, orbitObj: null, mesh: null, hasMoon: true, moonOrbitObj: null }, 
+            { name: "Марс", distance: 1.52 * 1.2, diameter: 6779, period: 687, color: 0xc1440e, speedFactor: 0.53, sizeFactor: 1.0, textureUrl: null, orbitObj: null, mesh: null },
+            { name: "Юпитер", distance: 5.2 * 1.2, diameter: 142984, period: 4333, color: 0xe0e0e0, speedFactor: 0.08, sizeFactor: 0.3, textureUrl: null, orbitObj: null, mesh: null }, 
+            { name: "Сатурн", distance: 9.58 * 1.2, diameter: 120536, period: 10759, color: 0xf5deb3, speedFactor: 0.033, sizeFactor: 0.3, textureUrl: null, orbitObj: null, mesh: null }, 
+            { name: "Уран", distance: 19.2 * 1.2, diameter: 51118, period: 30687, color: 0x5fa8d3, speedFactor: 0.011, sizeFactor: 1.0, textureUrl: null, orbitObj: null, mesh: null },
+            { name: "Нептун", distance: 30.1 * 1.2, diameter: 49528, period: 60190, color: 0x2b4f91, speedFactor: 0.005, sizeFactor: 1.0, textureUrl: null, orbitObj: null, mesh: null }
+        ];
+
+        function init() {
+            scene = new THREE.Scene();
+            const aspectRatio = window.innerWidth / window.innerHeight;
+            camera = new THREE.PerspectiveCamera(50, aspectRatio, 0.1, 10000);
+            camera.position.set(0, 300, 500); 
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(0x000000, 1);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true; 
+            controls.dampingFactor = 0.05;
+            controls.screenSpacePanning = false;
+            controls.minDistance = 10; 
+            controls.maxDistance = 3000; 
+            const ambientLight = new THREE.AmbientLight(0x333333); 
+            scene.add(ambientLight);
+            const sunRadius = 20; 
+            const sunLight = new THREE.PointLight(0xffffff, 2, 0, 0); 
+            sunLight.position.set(0, 0, 0);
+            scene.add(sunLight);
+
+            const sunGeometry = new THREE.SphereGeometry(sunRadius, 64, 64);
+            const sunMaterial = new THREE.MeshBasicMaterial({ color: 0xffaa00 }); 
+            const sunMesh = new THREE.Mesh(sunGeometry, sunMaterial);
+            sunMesh.name = "Солнце";
+            scene.add(sunMesh);
+            createStarfield();
+            createPlanets();
+            asteroidBeltMesh = createAsteroidBelt(); 
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('mousemove', onPointerMove, false);
+            window.addEventListener('click', onPointerMove, false);
+        }
+
+        function createAsteroidBelt() {
+            const asteroidCount = 8000;
+            const beltGeometry = new THREE.BufferGeometry();
+            const positions = [];
+            
+            const radiusMin = 120; 
+            const radiusMax = 180; 
+
+            for (let i = 0; i < asteroidCount; i++) {
+                const radius = THREE.MathUtils.randFloat(radiusMin, radiusMax);
+                const theta = THREE.MathUtils.randFloat(0, Math.PI * 2);
+                
+                const y = THREE.MathUtils.randFloatSpread(5); 
+
+                const x = radius * Math.cos(theta);
+                const z = radius * Math.sin(theta);
+                
+                positions.push(x, y, z);
+            }
+
+            beltGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+
+            const beltMaterial = new THREE.PointsMaterial({
+                color: 0x777777,
+                size: 1.5,
+                sizeAttenuation: true
+            });
+
+            const asteroidBelt = new THREE.Points(beltGeometry, beltMaterial);
+            asteroidBelt.name = "Пояс Астероидов";
+            scene.add(asteroidBelt);
+            
+            return asteroidBelt;
+        }
+
+        function createStarfield() {
+            const starGeometry = new THREE.BufferGeometry();
+            const starCount = 50000;
+            const positions = [];
+
+            for (let i = 0; i < starCount; i++) {
+                const distance = 5000;
+                const x = THREE.MathUtils.randFloatSpread(distance);
+                const y = THREE.MathUtils.randFloatSpread(distance);
+                const z = THREE.MathUtils.randFloatSpread(distance);
+                positions.push(x, y, z);
+            }
+
+            starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+
+            const starMaterial = new THREE.PointsMaterial({
+                color: 0xffffff,
+                size: 3,
+                sizeAttenuation: true,
+                transparent: true,
+                opacity: 0.8
+            });
+
+            const starField = new THREE.Points(starGeometry, starMaterial);
+            scene.add(starField);
+        }
+
+        function createPlanets() {
+            planetData.forEach(p => {
+                const orbitObject = new THREE.Object3D();
+                orbitObject.name = `${p.name} Orbit`;
+                scene.add(orbitObject);
+                p.orbitObj = orbitObject;
+
+                const planetRadius = p.diameter * SIZE_SCALE * p.sizeFactor;
+                const planetGeometry = new THREE.SphereGeometry(planetRadius, 32, 32);
+                const planetMaterial = new THREE.MeshPhongMaterial({ color: p.color, shininess: 50 });
+                
+                const planetMesh = new THREE.Mesh(planetGeometry, planetMaterial);
+                planetMesh.position.set(p.distance * 100 * DISTANCE_SCALE, 0, 0); 
+                planetMesh.userData = p;
+                planetMesh.name = p.name;
+                p.mesh = planetMesh;
+
+                orbitObject.add(planetMesh);
+
+                const orbitalRadius = p.distance * 100 * DISTANCE_SCALE;
+                const orbitPoints = [];
+                const numSegments = 360; 
+
+                for (let i = 0; i <= numSegments; i++) {
+                    const angle = (i / numSegments) * Math.PI * 2;
+                    const x = orbitalRadius * Math.cos(angle);
+                    const z = orbitalRadius * Math.sin(angle);
+                    orbitPoints.push(new THREE.Vector3(x, 0, z));
+                }
+
+                const orbitGeometry = new THREE.BufferGeometry().setFromPoints(orbitPoints);
+                const orbitMaterial = new THREE.LineBasicMaterial({ color: 0x444444, linewidth: 1 });
+                const orbitLine = new THREE.Line(orbitGeometry, orbitMaterial);
+                
+                scene.add(orbitLine);
+
+                if (p.hasMoon) {
+                    const moonRadius = MOON_DATA.diameter * SIZE_SCALE;
+                    const moonGeometry = new THREE.SphereGeometry(moonRadius, 16, 16);
+                    const moonMaterial = new THREE.MeshPhongMaterial({ color: MOON_DATA.color, shininess: 50 });
+                    
+                    moonMesh = new THREE.Mesh(moonGeometry, moonMaterial);
+                    moonMesh.userData = MOON_DATA; 
+                    moonMesh.name = MOON_DATA.name;
+
+                    const moonOrbitObject = new THREE.Object3D();
+                    moonOrbitObject.name = 'Moon Orbit Container';
+                    planetMesh.add(moonOrbitObject);
+
+                    moonMesh.position.set(MOON_DATA.orbitRadius, 0, 0); 
+                    moonOrbitObject.add(moonMesh);
+
+                    const moonOrbitPoints = [];
+                    for (let i = 0; i <= 60; i++) {
+                        const angle = (i / 60) * Math.PI * 2;
+                        const x = MOON_DATA.orbitRadius * Math.cos(angle);
+                        const z = MOON_DATA.orbitRadius * Math.sin(angle);
+                        moonOrbitPoints.push(new THREE.Vector3(x, 0, z));
+                    }
+                    const moonOrbitGeometry = new THREE.BufferGeometry().setFromPoints(moonOrbitPoints);
+                    const moonOrbitLine = new THREE.Line(moonOrbitGeometry, new THREE.LineBasicMaterial({ color: 0x333333 }));
+                    moonOrbitObject.add(moonOrbitLine);
+
+                    p.moonOrbitObj = moonOrbitObject;
+                }
+
+                if (p.name === "Сатурн") {
+                    const ringRadius = planetRadius * 1.5;
+                    const ringGeometry = new THREE.RingGeometry(ringRadius, ringRadius * 2.5, 64);
+                    
+                    ringGeometry.rotateX(Math.PI / 2); 
+
+                    const ringMaterial = new THREE.MeshBasicMaterial({
+                        color: 0x998877, 
+                        side: THREE.DoubleSide,
+                        transparent: true,
+                        opacity: 0.8
+                    });
+
+                    const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
+                    ringMesh.position.copy(planetMesh.position); 
+                    
+                    orbitObject.add(ringMesh);
+                }
+            });
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function updatePlanets(time) {
+            planetData.forEach(p => {
+                p.orbitObj.rotation.y = time * 0.0001 * p.speedFactor;
+                
+                p.mesh.rotation.y += 0.01 * (1 / p.speedFactor);
+                
+                if (p.hasMoon && p.moonOrbitObj) {
+                    p.moonOrbitObj.rotation.y += 0.01 * MOON_DATA.speedFactor;
+                }
+            });
+            
+            if (asteroidBeltMesh) {
+                asteroidBeltMesh.rotation.y += 0.0005; 
+            }
+        }
+
+        function displayPlanetInfo(planet) {
+            let distanceText;
+
+            if (planet.name === "Луна") {
+                 distanceText = planet.distance;
+            } else {
+                 const distanceKm = planet.distance * AU_TO_KM; 
+                 distanceText = `${distanceKm.toFixed(2).replace('.', ',')} млн км (до Солнца)`;
+            }
+
+            document.getElementById('planet-name-title').textContent = planet.name;
+            document.getElementById('info-distance').textContent = distanceText;
+            document.getElementById('info-diameter').textContent = `${planet.diameter.toLocaleString('ru-RU')} км`;
+            document.getElementById('info-period').textContent = `${planet.period.toLocaleString('ru-RU')} сут`;
+            infoBox.style.display = 'block';
+        }
+
+        function hidePlanetInfo() {
+            infoBox.style.display = 'none';
+        }
+
+        function onPointerMove(event) {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            let intersectableObjects = planetData.map(p => p.mesh);
+            if (moonMesh) {
+                intersectableObjects.push(moonMesh);
+            }
+
+            const intersects = raycaster.intersectObjects(intersectableObjects, false);
+
+            if (intersects.length > 0) {
+                const intersectedPlanet = intersects[0].object.userData;
+                displayPlanetInfo(intersectedPlanet);
+                document.body.classList.add('pointer-cursor');
+            } else {
+                hidePlanetInfo();
+                document.body.classList.remove('pointer-cursor');
+            }
+        }
+
+        function animate(time) {
+            requestAnimationFrame(animate);
+
+            updatePlanets(time);
+
+            controls.update();
+
+            renderer.render(scene, camera);
+        }
+
+        window.onload = function () {
+            init();
+            animate(0);
+        }
+
+    </script>
+</body>
+</html>
